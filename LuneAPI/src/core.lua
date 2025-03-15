@@ -2,8 +2,8 @@
 
 -- This file will contain the main logic for the microframework. 
 
-local Server = require('server')
-local config = require('config')
+local Server = require('luneapi.server')
+local config = require('luneapi.config')
 
 local Core = {}
 Core.__index = Core

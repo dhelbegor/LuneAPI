@@ -1,4 +1,4 @@
-local config = require('config')
+local config = require('luneapi.config')
 
 local Logger = {}
 Logger.__index = Logger

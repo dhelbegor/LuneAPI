@@ -4,9 +4,9 @@
 
 local http_server = require('http.server')
 local http_headers = require('http.headers')
-local Router = require('router')
-local Middleware = require('middleware')
-local config = require('config')
+local Router = require('luneapi.router')
+local Middleware = require('luneapi.middleware')
+local config = require('luneapi.config')
 
 local Server = {}
 Server.__index = Server
