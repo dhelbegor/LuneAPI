@@ -19,6 +19,7 @@ dependencies = {
 build = {
     type = "builtin",
     modules = {
+        ["luneapi"] = "LuneAPI/src/init.lua",
         ["luneapi.core"] = "LuneAPI/src/core.lua",
         ["luneapi.server"] = "LuneAPI/src/server.lua",
         ["luneapi.router"] = "LuneAPI/src/router.lua",

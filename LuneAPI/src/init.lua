@@ -1,3 +1,3 @@
-local Core = require('core')
+local Core = require('luneapi.core')
 
 return Core 
