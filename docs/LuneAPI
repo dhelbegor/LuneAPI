@@ -1,0 +1,130 @@
+This document serves as a development guide for creating a micro-framework in Lua, designed to be structured similarly to Flask. The framework should provide a simple and modular approach to handling HTTP requests, defining routes, and deploying as a **Lua package** that can be installed via Luarocks, ensuring easy distribution and reuse.
+
+## **Project Structure**
+
+A well-organized project structure ensures maintainability and scalability. The following layout should be followed:
+
+```
+LuneAPI/
+│── src/
+│   ├── core.lua   # Core framework logic
+│   ├── router.lua           # Route definitions
+│   ├── server.lua           # HTTP server logic
+│   ├── middleware.lua       # Middleware processing
+│   ├── utils.lua            # Utility functions
+│   ├── config.lua           # Configuration settings
+│── examples/
+│   ├── basic_app.lua        # Example of using the framework
+│── tests/
+│   ├── test_routes.lua
+│   ├── test_server.lua
+│── rockspec/               # Luarocks packaging files
+│   ├── lua-microframework.rockspec
+│── README.md               # Documentation
+```
+
+## **Core Components**
+
+### **1. HTTP Server**
+
+- Implement an HTTP server using `lua-http`.
+
+- The server should listen for incoming requests, parse the HTTP method and path, and dispatch to the appropriate handler.
+
+- Provide a response with appropriate headers and status codes.
+
+### **2. Routing System**
+
+- Define a `router.lua` module that maps paths to handler functions.
+
+- Each handler function should return HTTP status, headers, and content.
+
+- Support GET, POST, PUT, and DELETE methods.
+
+### **3. Middleware**
+
+- Implement a basic middleware system in `middleware.lua`.
+
+- Middlewares should allow for request pre-processing (e.g., logging, authentication, input validation).
+
+### **4. JSON Support**
+
+- Utilize `lua-cjson` to handle JSON encoding and decoding.
+
+- Ensure JSON responses have proper `Content-Type` headers.
+
+### **5. Configuration**
+
+- Store configuration settings in `config.lua`.
+
+- Allow customization of the server port, logging level, and request timeout settings.
+
+## **Usage Example**
+
+Once installed via Luarocks, users should be able to create a simple web application like this:
+
+```
+local microframework = require("microframework")
+
+local app = microframework:new()
+
+app:route("GET", "/hello", function()
+    return { status = 200, body = "Hello, World!" }
+end)
+
+app:run()
+```
+
+## **Implementation Steps**
+
+### **Step 1: Setup Development Environment**
+
+1. Install Lua and Luarocks:
+
+   ```
+   sudo apt update && sudo apt install -y lua5.4 luarocks
+   ```
+
+2. Install dependencies:
+
+   ```
+   luarocks install lua-cjson
+   luarocks install http
+   ```
+
+### **Step 2: Implement the HTTP Server**
+
+- Create `server.lua` to handle incoming connections and delegate requests to the router.
+
+- Use `lua-http` to establish a modern HTTP server.
+
+### **Step 3: Define Routes**
+
+- Implement a `router.lua` file that contains mappings between URLs and handler functions.
+
+- Ensure dynamic path parameters are supported.
+
+### **Step 4: Implement Middleware Support**
+
+- Define a middleware processing function in `middleware.lua`.
+
+- Allow middleware functions to execute before and after request handling.
+
+## **Testing and Debugging**
+
+- Use `curl` to test responses:
+
+  ```
+  curl http://localhost:8080/hello
+  ```
+
+- Ensure logging provides sufficient debugging information.
+
+## **Next Steps**
+
+- Add session management.
+
+- Implement authentication and authorization.
+
+- Optimize performance for high-traffic workloads.
+- Implement unit tests in `tests/`.
