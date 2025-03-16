@@ -1,0 +1,25 @@
+<h2>User List</h2>
+
+<div class="card">
+    <p>Total users: {{ users|length }}</p>
+    
+    {% if users|length > 0 %}
+        <ul>
+        {% for user in users %}
+            <li>
+                <strong>{{ user.name|upper }}</strong> ({{ user.email }})
+                {% if user.admin %}
+                    <span style="color: red;">ADMIN</span>
+                {% endif %}
+                <br>
+                <small>Joined: {{ user.joined|date_format("%Y-%m-%d") }}</small>
+                <p>{{ user.bio|truncate(100) }}</p>
+            </li>
+        {% endfor %}
+        </ul>
+    {% else %}
+        <p>No users found.</p>
+    {% endif %}
+</div>
+
+<a href="/" class="btn">Back to Home</a> 

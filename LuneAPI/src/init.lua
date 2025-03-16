@@ -1,7 +1,8 @@
+-- LuneAPI Framework main entry point
+
 local Core = require('luneapi.core')
 
--- Debug prints
-print("Init.lua - Core:", Core)
-print("Init.lua - Core.get:", Core.get)
+-- Export the template engine separately for direct use
+Core.Template = require('luneapi.template')
 
 return Core 

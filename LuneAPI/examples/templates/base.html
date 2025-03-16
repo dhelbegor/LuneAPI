@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>{% if title %}{{ title }}{% else %}LuneAPI Template Example{% endif %}</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            line-height: 1.6;
+            color: #333;
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        header {
+            background-color: #f4f4f4;
+            padding: 20px;
+            margin-bottom: 20px;
+            border-radius: 5px;
+        }
+        footer {
+            margin-top: 30px;
+            padding: 20px;
+            background-color: #f4f4f4;
+            text-align: center;
+            border-radius: 5px;
+        }
+        .container {
+            padding: 20px;
+        }
+        .card {
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            padding: 15px;
+            margin-bottom: 15px;
+            background-color: white;
+        }
+        h1, h2, h3 {
+            color: #333;
+        }
+        .btn {
+            display: inline-block;
+            padding: 8px 16px;
+            background-color: #4CAF50;
+            color: white;
+            text-decoration: none;
+            border-radius: 4px;
+            border: none;
+            cursor: pointer;
+        }
+        .btn:hover {
+            background-color: #45a049;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>{{ page_title|default("LuneAPI Template Engine") }}</h1>
+        <p>A flexible template engine for Lua web applications</p>
+    </header>
+    
+    <div class="container">
+        {% if message %}
+        <div class="card">
+            <p>{{ message }}</p>
+        </div>
+        {% endif %}
+        
+        <div id="content">
+            {# This is where page content will go #}
+            {% include content_template %}
+        </div>
+    </div>
+    
+    <footer>
+        <p>Powered by LuneAPI - {{ current_year|default(2023) }}</p>
+    </footer>
+</body>
+</html> 
