@@ -13,7 +13,6 @@ description = {
 }
 dependencies = {
     "lua >= 5.1",
-    "http",
     "lua-cjson"
 }
 build = {
@@ -26,6 +25,7 @@ build = {
         ["luneapi.middleware"] = "LuneAPI/src/middleware.lua",
         ["luneapi.utils"] = "LuneAPI/src/utils.lua",
         ["luneapi.config"] = "LuneAPI/src/config.lua",
+        ["luneapi.url_parser"] = "LuneAPI/src/url_parser.lua",
         ["luneapi.logger"] = "LuneAPI/src/logger.lua"
     }
 } 
