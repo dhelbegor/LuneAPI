@@ -27,7 +27,7 @@ local users = {
     {
         name = "Bob Johnson",
         email = "bob@example.com",
-        admin = false,
+        admin = true,
         joined = os.time() - 86400 * 5, -- 5 days ago
         bio = "Bob is a recent computer science graduate excited to start his career in technology. He's passionate about learning new programming languages and frameworks."
     }
@@ -190,12 +190,12 @@ local welcome_tmpl = [[
 <div class="card">
     <h3>Features</h3>
     <ul>
-        <li>Variable substitution with {{ variable }}</li>
-        <li>Conditionals with {% if condition %} {% endif %}</li>
-        <li>Loops with {% for item in items %} {% endfor %}</li>
-        <li>Includes with {% include template %}</li>
-        <li>Filters with {{ variable|filter }}</li>
-        <li>Comments with {# This is a comment #}</li>
+        <li>Variable substitution with <pre style="display:inline;">{{ variable }}</pre></li>
+        <li>Conditionals with <pre style="display:inline;">{% if condition %} {% endif %}</pre></li>
+        <li>Loops with <pre style="display:inline;">{% for item in items %} {% endfor %}</pre></li>
+        <li>Includes with <pre style="display:inline;">{% include template %}</pre></li>
+        <li>Filters with <pre style="display:inline;">{{ variable|filter }}</pre></li>
+        <li>Comments with <pre style="display:inline;">{# This is a comment #}</pre></li>
     </ul>
 </div>
 

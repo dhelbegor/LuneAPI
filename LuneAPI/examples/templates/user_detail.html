@@ -1,0 +1,10 @@
+        <div class="card">
+            <h2>{{ user.name|upper }}</h2>
+            <p><strong>Email:</strong> {{ user.email }}</p>
+            <p><strong>Role:</strong> {% if user.admin %}Administrator{% else %}Regular User{% endif %}</p>
+            <p><strong>Joined:</strong> {{ user.joined|date_format("%B %d, %Y") }}</p>
+            <h3>Biography</h3>
+            <p>{{ user.bio }}</p>
+            <a href="/users" class="btn">Back to Users</a>
+        </div>
+    

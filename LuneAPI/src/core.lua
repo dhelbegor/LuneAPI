@@ -77,10 +77,6 @@ function Core.new()
         Template.set_template_dir(dir)
     end
     
-    -- Debug prints
-    print("Core.new - instance:", instance)
-    print("Core.new - get method:", instance.get)
-    
     return instance
 end
 

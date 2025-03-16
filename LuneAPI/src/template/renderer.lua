@@ -6,6 +6,23 @@ local Renderer = {}
 -- Template directory for includes
 local template_dir = nil
 
+-- Maximum include depth to prevent infinite recursion
+local MAX_INCLUDE_DEPTH = 10
+
+-- Track includes to prevent circular includes
+local include_stack = {}
+
+-- Debug mode (enables additional logging)
+local debug_mode = false
+
+-- Default filter for undefined values
+local function default_value(val, default)
+    if val == nil or val == "" then
+        return default
+    end
+    return val
+end
+
 -- Built-in filters
 local filters = {
     -- Convert value to uppercase
@@ -18,9 +35,31 @@ local filters = {
         return string.lower(tostring(val or ""))
     end,
     
+    -- Count items in a table or length of a string
+    length = function(val)
+        if type(val) == "table" then
+            -- Try to use # operator for array-like tables first
+            local array_length = #val
+            if array_length > 0 then
+                return array_length
+            end
+            
+            -- Fall back to counting all keys for non-sequential tables
+            local count = 0
+            for _ in pairs(val) do
+                count = count + 1
+            end
+            return count
+        elseif type(val) == "string" then
+            return #val
+        end
+        return 0
+    end,
+    
     -- Format a number with comma as thousands separator
     number_format = function(val, decimals)
         decimals = decimals or 0
+        if val == nil then return "0" end
         local str = string.format("%." .. decimals .. "f", tonumber(val) or 0)
         local left, right = string.match(str, "^([^.]+)(.*)$")
         left = string.gsub(left, "(%d)(%d%d%d)$", "%1,%2")
@@ -34,7 +73,7 @@ local filters = {
         if type(val) == "number" then
             return os.date(format, val)
         end
-        return val
+        return val or ""
     end,
     
     -- Truncate a string to a max length with ellipsis
@@ -52,18 +91,39 @@ local filters = {
     
     -- HTML escape
     escape = function(val)
-        return tostring(val or "")
+        if val == nil then return "" end
+        return tostring(val)
             :gsub("&", "&amp;")
             :gsub("<", "&lt;")
             :gsub(">", "&gt;")
             :gsub('"', "&quot;")
             :gsub("'", "&#39;")
-    end
+    end,
+    
+    -- Return default value if input is nil or empty
+    default = default_value
 }
 
 -- Helper function to get nested value from context
 local function get_value(context, var_name)
     if var_name == "" then return nil end
+    
+    -- Handle built-in values
+    if var_name == "_template_dir" then
+        return template_dir
+    end
+    
+    -- Check for default filter syntax: var|default("default value")
+    local name, default_val = var_name:match("(.+)|default%(([^)]+)%)")
+    if name and default_val then
+        -- Remove quotes if present
+        if default_val:match('^".*"$') or default_val:match("^'.*'$") then
+            default_val = default_val:sub(2, -2)
+        end
+        
+        local value = get_value(context, name:gsub("^%s*", ""):gsub("%s*$", ""))
+        return default_value(value, default_val)
+    end
     
     -- Handle nested properties (e.g., user.name)
     local parts = {}
@@ -73,6 +133,10 @@ local function get_value(context, var_name)
     
     local value = context
     for _, part in ipairs(parts) do
+        if type(value) ~= "table" then
+            return nil
+        end
+        
         -- Handle array indexing (e.g., items[1])
         local name, index = part:match("^([^%[]+)%[(%d+)%]$")
         if name and index then
@@ -84,11 +148,7 @@ local function get_value(context, var_name)
             end
         else
             -- Regular property access
-            if type(value) == "table" then
-                value = value[part]
-            else
-                return nil
-            end
+            value = value[part]
         end
         
         -- If value becomes nil, stop traversing
@@ -98,69 +158,282 @@ local function get_value(context, var_name)
     return value
 end
 
--- Function to evaluate conditions for if blocks
+-- Try to check if a condition is truthy
 local function evaluate_condition(condition, context)
-    -- Handle empty condition (truthy check on variable)
-    if condition:match("^%s*$") then
+    if type(condition) ~= "string" then
         return false
     end
     
-    -- Handle negation (not var)
-    local negated = false
-    if condition:match("^%s*not%s+") then
-        negated = true
-        condition = condition:gsub("^%s*not%s+", "")
+    -- Handle empty condition
+    condition = condition:gsub("^%s*(.-)%s*$", "%1")
+    if condition == "" then
+        return false
     end
     
-    -- Handle equality (var == value)
-    local left, op, right = condition:match("([^=!<>]-)%s*([=!<>][=]?)%s*(.+)")
-    if left and op and right then
-        -- Get left value from context
-        local left_val = get_value(context, left:gsub("^%s*", ""):gsub("%s*$", ""))
+    -- Handle NOT operator: if not condition
+    if condition:match("^not%s+(.+)$") then
+        local cond = condition:match("^not%s+(.+)$")
+        return not evaluate_condition(cond, context)
+    end
+    
+    -- Handle simple conditions like: if user
+    if not condition:find("[=<>!]") then
+        local value = get_value(context, condition)
+        -- Check if it's truthy
+        return value ~= nil and value ~= false and value ~= 0 and value ~= ""
+    end
+    
+    -- Handle comparison with filter
+    local left_var, filter, operator, right = condition:match("([^|]+)|([^%s]+)%s*([=<>!]+)%s*(.+)")
+    if left_var and filter and operator and right then
+        local left_value = get_value(context, left_var:gsub("^%s*(.-)%s*$", "%1"))
         
-        -- Parse right value (might be a literal or a variable)
-        local right_val
+        -- Apply the filter
+        if filters[filter] then
+            left_value = filters[filter](left_value)
+        end
+        
+        -- Parse right side
+        right = right:gsub("^%s*(.-)%s*$", "%1")
+        local right_value
+        
+        -- Handle quoted strings or numbers
         if right:match('^".*"$') or right:match("^'.*'$") then
-            -- String literal
-            right_val = right:sub(2, -2)
+            right_value = right:sub(2, -2)
         elseif right:match("^%d+%.?%d*$") then
-            -- Number literal
-            right_val = tonumber(right)
+            right_value = tonumber(right)
+            -- Convert left to number for numeric comparison
+            if type(left_value) ~= "number" then
+                left_value = tonumber(left_value) or 0
+            end
         else
-            -- Try as a variable
-            right_val = get_value(context, right:gsub("^%s*", ""):gsub("%s*$", ""))
+            right_value = get_value(context, right)
         end
         
-        -- Compare values based on operator
-        local result
-        if op == "==" then
-            result = left_val == right_val
-        elseif op == "!=" then
-            result = left_val ~= right_val
-        elseif op == ">" then
-            result = left_val > right_val
-        elseif op == ">=" then
-            result = left_val >= right_val
-        elseif op == "<" then
-            result = left_val < right_val
-        elseif op == "<=" then
-            result = left_val <= right_val
+        -- Perform comparison
+        if operator == "==" then
+            return left_value == right_value
+        elseif operator == "!=" then
+            return left_value ~= right_value
+        elseif operator == ">" then
+            return left_value > right_value
+        elseif operator == "<" then
+            return left_value < right_value
+        elseif operator == ">=" then
+            return left_value >= right_value
+        elseif operator == "<=" then
+            return left_value <= right_value
         end
-        
-        return negated and not result or result
     end
     
-    -- Simple variable check
-    local var_value = get_value(context, condition:gsub("^%s*", ""):gsub("%s*$", ""))
-    
-    -- Handle boolean values and nil
-    if type(var_value) == "boolean" then
-        return negated and not var_value or var_value
+    -- Check for regular comparison operators
+    if condition:find("==") then
+        local left, right = condition:match("(.-)%s*==%s*(.+)")
+        if left and right then
+            left = left:gsub("^%s*(.-)%s*$", "%1")
+            right = right:gsub("^%s*(.-)%s*$", "%1")
+            
+            -- Handle quotes
+            if left:match('^".*"$') or left:match("^'.*'$") then
+                left = left:sub(2, -2)
+            elseif left:match("^%d+%.?%d*$") then
+                left = tonumber(left)
+            else
+                left = get_value(context, left)
+            end
+            
+            if right:match('^".*"$') or right:match("^'.*'$") then
+                right = right:sub(2, -2)
+            elseif right:match("^%d+%.?%d*$") then
+                right = tonumber(right)
+            else
+                right = get_value(context, right)
+            end
+            
+            return left == right
+        end
+    elseif condition:find("!=") then
+        local left, right = condition:match("(.-)%s*!=%s*(.+)")
+        if left and right then
+            left = left:gsub("^%s*(.-)%s*$", "%1")
+            right = right:gsub("^%s*(.-)%s*$", "%1")
+            
+            -- Handle quotes
+            if left:match('^".*"$') or left:match("^'.*'$") then
+                left = left:sub(2, -2)
+            elseif left:match("^%d+%.?%d*$") then
+                left = tonumber(left)
+            else
+                left = get_value(context, left)
+            end
+            
+            if right:match('^".*"$') or right:match("^'.*'$") then
+                right = right:sub(2, -2)
+            elseif right:match("^%d+%.?%d*$") then
+                right = tonumber(right)
+            else
+                right = get_value(context, right)
+            end
+            
+            return left ~= right
+        end
+    elseif condition:find(">") and not condition:find(">=") then
+        local left, right = condition:match("(.-)%s*>%s*(.+)")
+        if left and right then
+            left = left:gsub("^%s*(.-)%s*$", "%1")
+            right = right:gsub("^%s*(.-)%s*$", "%1")
+            
+            -- Handle quotes and convert to appropriate types
+            if left:match('^".*"$') or left:match("^'.*'$") then
+                left = left:sub(2, -2)
+            elseif left:match("^%d+%.?%d*$") then
+                left = tonumber(left)
+            else
+                left = get_value(context, left)
+                -- Try to convert to number for comparison
+                if type(left) ~= "number" and type(tonumber(left)) == "number" then
+                    left = tonumber(left)
+                end
+            end
+            
+            if right:match('^".*"$') or right:match("^'.*'$") then
+                right = right:sub(2, -2)
+            elseif right:match("^%d+%.?%d*$") then
+                right = tonumber(right)
+            else
+                right = get_value(context, right)
+                -- Try to convert to number for comparison
+                if type(right) ~= "number" and type(tonumber(right)) == "number" then
+                    right = tonumber(right)
+                end
+            end
+            
+            -- Ensure both values are of the same type for comparison
+            if type(left) == "number" and type(right) == "number" then
+                return left > right
+            else
+                return tostring(left) > tostring(right)
+            end
+        end
+    elseif condition:find("<") and not condition:find("<=") then
+        local left, right = condition:match("(.-)%s*<%s*(.+)")
+        if left and right then
+            left = left:gsub("^%s*(.-)%s*$", "%1")
+            right = right:gsub("^%s*(.-)%s*$", "%1")
+            
+            -- Handle quotes and convert to appropriate types
+            if left:match('^".*"$') or left:match("^'.*'$") then
+                left = left:sub(2, -2)
+            elseif left:match("^%d+%.?%d*$") then
+                left = tonumber(left)
+            else
+                left = get_value(context, left)
+                -- Try to convert to number for comparison
+                if type(left) ~= "number" and type(tonumber(left)) == "number" then
+                    left = tonumber(left)
+                end
+            end
+            
+            if right:match('^".*"$') or right:match("^'.*'$") then
+                right = right:sub(2, -2)
+            elseif right:match("^%d+%.?%d*$") then
+                right = tonumber(right)
+            else
+                right = get_value(context, right)
+                -- Try to convert to number for comparison
+                if type(right) ~= "number" and type(tonumber(right)) == "number" then
+                    right = tonumber(right)
+                end
+            end
+            
+            -- Ensure both values are of the same type for comparison
+            if type(left) == "number" and type(right) == "number" then
+                return left < right
+            else
+                return tostring(left) < tostring(right)
+            end
+        end
+    elseif condition:find(">=") then
+        local left, right = condition:match("(.-)%s*>=%s*(.+)")
+        if left and right then
+            left = left:gsub("^%s*(.-)%s*$", "%1")
+            right = right:gsub("^%s*(.-)%s*$", "%1")
+            
+            -- Handle quotes and convert to appropriate types
+            if left:match('^".*"$') or left:match("^'.*'$") then
+                left = left:sub(2, -2)
+            elseif left:match("^%d+%.?%d*$") then
+                left = tonumber(left)
+            else
+                left = get_value(context, left)
+                -- Try to convert to number for comparison
+                if type(left) ~= "number" and type(tonumber(left)) == "number" then
+                    left = tonumber(left)
+                end
+            end
+            
+            if right:match('^".*"$') or right:match("^'.*'$") then
+                right = right:sub(2, -2)
+            elseif right:match("^%d+%.?%d*$") then
+                right = tonumber(right)
+            else
+                right = get_value(context, right)
+                -- Try to convert to number for comparison
+                if type(right) ~= "number" and type(tonumber(right)) == "number" then
+                    right = tonumber(right)
+                end
+            end
+            
+            -- Ensure both values are of the same type for comparison
+            if type(left) == "number" and type(right) == "number" then
+                return left >= right
+            else
+                return tostring(left) >= tostring(right)
+            end
+        end
+    elseif condition:find("<=") then
+        local left, right = condition:match("(.-)%s*<=%s*(.+)")
+        if left and right then
+            left = left:gsub("^%s*(.-)%s*$", "%1")
+            right = right:gsub("^%s*(.-)%s*$", "%1")
+            
+            -- Handle quotes and convert to appropriate types
+            if left:match('^".*"$') or left:match("^'.*'$") then
+                left = left:sub(2, -2)
+            elseif left:match("^%d+%.?%d*$") then
+                left = tonumber(left)
+            else
+                left = get_value(context, left)
+                -- Try to convert to number for comparison
+                if type(left) ~= "number" and type(tonumber(left)) == "number" then
+                    left = tonumber(left)
+                end
+            end
+            
+            if right:match('^".*"$') or right:match("^'.*'$") then
+                right = right:sub(2, -2)
+            elseif right:match("^%d+%.?%d*$") then
+                right = tonumber(right)
+            else
+                right = get_value(context, right)
+                -- Try to convert to number for comparison
+                if type(right) ~= "number" and type(tonumber(right)) == "number" then
+                    right = tonumber(right)
+                end
+            end
+            
+            -- Ensure both values are of the same type for comparison
+            if type(left) == "number" and type(right) == "number" then
+                return left <= right
+            else
+                return tostring(left) <= tostring(right)
+            end
+        end
     end
     
-    -- Check if the value exists and is not false/nil
-    local result = var_value ~= nil and var_value ~= false
-    return negated and not result or result
+    -- Default: get the value and check if it's truthy
+    local value = get_value(context, condition)
+    return value ~= nil and value ~= false and value ~= 0 and value ~= ""
 end
 
 -- Apply filters to a value (e.g., {{ name|upper|truncate(20) }})
@@ -171,14 +444,18 @@ local function apply_filters(value, filter_str)
     
     -- Split into individual filters
     for filter_expr in filter_str:gmatch("([^|]+)") do
+        filter_expr = filter_expr:gsub("^%s*(.-)%s*$", "%1")
+        
         -- Extract filter name and arguments
-        local filter_name, args = filter_expr:match("^%s*([%w_]+)%s*%(?(.-)%)?%s*$")
+        local filter_name, args = filter_expr:match("^([%w_]+)%s*%(?(.-)%)?$")
         
         if filter_name and filters[filter_name] then
             -- Parse arguments if any
             local filter_args = {value}
             if args and args ~= "" then
                 for arg in args:gmatch("([^,]+)") do
+                    arg = arg:gsub("^%s*(.-)%s*$", "%1")
+                    
                     -- Handle string literals
                     if arg:match('^".*"$') or arg:match("^'.*'$") then
                         table.insert(filter_args, arg:sub(2, -2))
@@ -187,7 +464,7 @@ local function apply_filters(value, filter_str)
                         table.insert(filter_args, tonumber(arg))
                     -- Handle other values (as strings)
                     else
-                        table.insert(filter_args, arg:gsub("^%s*", ""):gsub("%s*$", ""))
+                        table.insert(filter_args, arg)
                     end
                 end
             end
@@ -202,14 +479,18 @@ end
 
 -- Process variables in the format "var|filter1|filter2(arg)"
 local function process_variable(var_expr, context)
+    var_expr = var_expr:gsub("^%s*(.-)%s*$", "%1")
+    
     -- Split variable name and filters
-    local var_name, filter_str = var_expr:match("^%s*([^|]+)(.*)$")
+    local var_name, filter_str = var_expr:match("^([^|]+)(.*)$")
     if not var_name then
         return ""
     end
     
+    var_name = var_name:gsub("^%s*(.-)%s*$", "%1")
+    
     -- Get value from context
-    local value = get_value(context, var_name:gsub("^%s*", ""):gsub("%s*$", ""))
+    local value = get_value(context, var_name)
     
     -- Apply filters if any
     if filter_str and filter_str ~= "" then
@@ -223,86 +504,213 @@ local function process_variable(var_expr, context)
     return tostring(value)
 end
 
+-- Resolve include file path and handle template variables
+local function resolve_include_path(template_name, context)
+    if not template_dir then
+        return nil, "Template directory not set"
+    end
+    
+    -- Normalize template name
+    template_name = template_name:gsub("^%s*(.-)%s*$", "%1")
+    
+    -- Remove quotes if present
+    if template_name:match('^".*"$') or template_name:match("^'.*'$") then
+        template_name = template_name:sub(2, -2)
+    end
+    
+    -- Check if the template name is a variable in the context
+    if not template_name:find("[./]") and context[template_name] then
+        template_name = tostring(context[template_name])
+    end
+    
+    -- If template doesn't have an extension, add .html
+    if not template_name:match("%.html$") and not template_name:match("%.tpl$") then
+        template_name = template_name .. ".html"
+    end
+    
+    -- Build file path
+    local file_path = template_dir .. "/" .. template_name
+    
+    return file_path
+end
+
+-- Render an included template with handling for circular dependencies
+local function process_include(template_name, context)
+    if debug_mode then
+        print("Including template: " .. template_name)
+    end
+    
+    -- Check for the template directory
+    if not template_dir then
+        return "<!-- Include failed: template_dir not set -->"
+    end
+    
+    -- Try to evaluate the template name if it's a variable 
+    if template_name:match("{{.+}}") then
+        -- Extract variable name from {{ var }}
+        local var_name = template_name:match("{{%s*(.-)%s*}}")
+        if var_name then
+            local value = get_value(context, var_name)
+            if value then
+                template_name = value
+            end
+        end
+    end
+    
+    -- Check for circular includes
+    for _, included in ipairs(include_stack) do
+        if included == template_name then
+            return "<!-- Error: Circular include detected for '" .. template_name .. "' -->"
+        end
+    end
+    
+    -- Check for maximum include depth
+    if #include_stack >= MAX_INCLUDE_DEPTH then
+        return "<!-- Error: Maximum include depth exceeded. Possible circular includes. -->"
+    end
+    
+    -- Resolve file path
+    local file_path, err = resolve_include_path(template_name, context)
+    if not file_path then
+        return "<!-- Include error: " .. err .. " -->"
+    end
+    
+    -- Add to include stack
+    table.insert(include_stack, template_name)
+    
+    -- Try to open the file
+    local file, err = io.open(file_path, "r")
+    if not file then
+        table.remove(include_stack)
+        return "<!-- Include failed: " .. file_path .. " (" .. (err or "unknown error") .. ") -->"
+    end
+    
+    -- Read and parse the template
+    local content = file:read("*a")
+    file:close()
+    
+    -- Parse and render the included template
+    local success, result = pcall(function()
+        local Parser = require('luneapi.template.parser')
+        local parsed = Parser.parse(content)
+        return Renderer.render(parsed, context)
+    end)
+    
+    -- Remove from include stack
+    table.remove(include_stack)
+    
+    if success then
+        return result
+    else
+        return "<!-- Error including template: " .. tostring(result) .. " -->"
+    end
+end
+
 -- Render a parsed template with context data
 -- @param parsed Parsed template data from Parser.parse
 -- @param context Data context for rendering
 -- @return Rendered string
 function Renderer.render(parsed, context)
+    if not parsed then 
+        return "<!-- Error: Nothing to render, parsed template is nil -->"
+    end
+    
+    context = context or {}
     local output = {}
     
+    -- Add some useful context variables
+    local now = os.time()
+    context.current_year = os.date("%Y", now)
+    context.current_date = os.date("%Y-%m-%d", now)
+    context._template_dir = template_dir
+    
+    -- Process each node in the parsed template
     for _, node in ipairs(parsed) do
         if node.type == "text" then
-            -- Render text node directly
+            -- Text node - just add it directly
             table.insert(output, node.value)
-        
+            
         elseif node.type == "variable" then
-            -- Process variable with filters
-            table.insert(output, process_variable(node.name, context))
-        
+            -- Variable node - evaluate it with filters
+            local success, result = pcall(process_variable, node.value, context)
+            if success then
+                table.insert(output, result)
+            else
+                table.insert(output, "<!-- Error processing variable: " .. tostring(result) .. " -->")
+            end
+            
         elseif node.type == "block" then
             if node.name == "if" then
-                -- Process if block
-                if evaluate_condition(node.args, context) then
-                    -- Condition is true, render content
-                    table.insert(output, Renderer.render(node.content, context))
-                end
-            
-            elseif node.name == "for" then
-                -- Process for loop
-                local var_name = node.args.var
-                local collection_name = node.args.collection
-                local collection = get_value(context, collection_name)
+                -- If block
+                local success, condition_result = pcall(evaluate_condition, node.args, context)
                 
-                if type(collection) == "table" then
-                    -- Iterate over the collection
-                    for i, item in ipairs(collection) do
-                        -- Create a new context for the loop iteration
-                        local loop_context = {}
-                        for k, v in pairs(context) do
-                            loop_context[k] = v
-                        end
-                        
-                        -- Add the loop variable and loop metadata
-                        loop_context[var_name] = item
-                        loop_context.loop = {
-                            index = i,
-                            index0 = i - 1,
-                            first = i == 1,
-                            last = i == #collection,
-                            length = #collection
-                        }
-                        
-                        -- Render the loop content with the loop context
-                        table.insert(output, Renderer.render(node.content, loop_context))
-                    end
-                end
-            
-            elseif node.name == "include" then
-                -- Process include
-                local template_name = node.args:gsub("^%s*", ""):gsub("%s*$", "")
-                
-                -- Remove quotes if present
-                if template_name:match('^".*"$') or template_name:match("^'.*'$") then
-                    template_name = template_name:sub(2, -2)
-                end
-                
-                if template_dir then
-                    local file_path = template_dir .. "/" .. template_name
-                    
-                    local file, err = io.open(file_path, "r")
-                    if file then
-                        local content = file:read("*a")
-                        file:close()
-                        
-                        -- Parse and render the included template
-                        local Parser = require('luneapi.template.parser')
-                        local included = Parser.parse(content)
-                        table.insert(output, Renderer.render(included, context))
-                    else
-                        table.insert(output, "<!-- Include failed: " .. file_path .. " -->")
+                if success then
+                    if condition_result then
+                        -- Condition is true, render content
+                        local content_result = Renderer.render(node.content, context)
+                        table.insert(output, content_result)
+                    elseif node.else_content then
+                        -- Condition is false, render else content if it exists
+                        local else_result = Renderer.render(node.else_content, context)
+                        table.insert(output, else_result)
                     end
                 else
-                    table.insert(output, "<!-- Include failed: template_dir not set -->")
+                    -- Error in condition evaluation
+                    table.insert(output, "<!-- Error in if condition: " .. tostring(condition_result) .. " -->")
+                end
+                
+            elseif node.name == "for" then
+                -- For loop
+                local var_name, collection_name = node.args:match("(%S+)%s+in%s+(%S+)")
+                
+                if not var_name or not collection_name then
+                    table.insert(output, "<!-- Invalid for loop syntax: " .. node.args .. " -->")
+                else
+                    local collection = get_value(context, collection_name)
+                    
+                    if type(collection) == "table" and next(collection) ~= nil then
+                        -- Iterate through collection
+                        for i, item in ipairs(collection) do
+                            -- Create a loop context
+                            local loop_context = {}
+                            for k, v in pairs(context) do
+                                loop_context[k] = v
+                            end
+                            
+                            -- Add loop variable and metadata
+                            loop_context[var_name] = item
+                            loop_context.loop = {
+                                index = i,
+                                index0 = i - 1,
+                                first = (i == 1),
+                                last = (i == #collection),
+                                length = #collection
+                            }
+                            
+                            -- Render content with loop context
+                            local item_result = Renderer.render(node.content, loop_context)
+                            table.insert(output, item_result)
+                        end
+                    elseif node.else_content then
+                        -- Empty collection, render else content
+                        local else_result = Renderer.render(node.else_content, context)
+                        table.insert(output, else_result)
+                    end
+                end
+                
+            elseif node.name == "include" then
+                -- Include block
+                local include_result = process_include(node.args, context)
+                table.insert(output, include_result)
+                
+            else
+                -- Unknown block type
+                if node.content then
+                    -- Render the content anyway
+                    local content_result = Renderer.render(node.content, context)
+                    table.insert(output, content_result)
+                else
+                    table.insert(output, "<!-- Unknown block type: " .. node.name .. " -->")
                 end
             end
         end
@@ -311,10 +719,22 @@ function Renderer.render(parsed, context)
     return table.concat(output)
 end
 
+-- Clear the include stack (helpful for debugging)
+function Renderer.clear_include_stack()
+    include_stack = {}
+end
+
 -- Set the template directory for includes
 -- @param dir Directory path
 function Renderer.set_template_dir(dir)
     template_dir = dir
+    -- Reset include_stack when setting a new template directory
+    include_stack = {}
+end
+
+-- Enable or disable debug mode
+function Renderer.set_debug_mode(enabled)
+    debug_mode = enabled
 end
 
 -- Add a custom filter
@@ -326,6 +746,11 @@ function Renderer.add_filter(name, filter_func)
         return true
     end
     return false
+end
+
+-- Get the current template directory
+function Renderer.get_template_dir()
+    return template_dir
 end
 
 return Renderer 
