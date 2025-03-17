@@ -1,14 +1,14 @@
 package = "luneapi"
 version = "scm-1"
 source = {
-    url = "git@github.com:dhelbegor/LuneAPI.git"
+    url = "git+https://github.com/dhelbegor/LuneAPI.git"
 }
 description = {
     summary = "A micro-framework for Lua, similar to Flask.",
     detailed = [[
         LuneAPI is a simple and modular micro-framework for Lua, designed to handle HTTP requests, define routes, and deploy as a Lua package.
     ]],
-    homepage = "https://github.com/dhelbegor/LuneAPI",  -- Replace with actual homepage URL
+    homepage = "https://github.com/dhelbegor/LuneAPI",
     license = "MIT"
 }
 dependencies = {
