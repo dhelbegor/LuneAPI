@@ -103,83 +103,67 @@ end)
 
 -- Template syntax demonstration
 app:get('/template-demo', function(req, res)
-    local template_str = [[
-    <h2>Template Engine Demo</h2>
+    -- Start rendering timer
+    local start_time = os.clock()
     
-    <div class="card">
-        <h3>Variable Substitution</h3>
-        <p>Simple variable: {{ name }}</p>
-        <p>Filtered variable: {{ name|upper }}</p>
-        <p>Default value: {{ age|default("Not specified") }}</p>
-    </div>
-    
-    <div class="card">
-        <h3>Conditionals</h3>
-        {% if is_admin %}
-            <p>Welcome, administrator!</p>
-        {% else %}
-            <p>Welcome, user!</p>
-        {% endif %}
-        
-        {% if age and age >= 18 %}
-            <p>You are an adult.</p>
-        {% elseif age %}
-            <p>You are under 18.</p>
-        {% else %}
-            <p>Age not provided.</p>
-        {% endif %}
-    </div>
-    
-    <div class="card">
-        <h3>Loops</h3>
-        <ul>
-        {% for item in items %}
-            <li>
-                {{ loop.index }}. {{ item }}
-                {% if loop.first %} (first item){% endif %}
-                {% if loop.last %} (last item){% endif %}
-            </li>
-        {% endfor %}
-        </ul>
-    </div>
-    
-    <div class="card">
-        <h3>Filters</h3>
-        <p>Original: {{ sample_text }}</p>
-        <p>Uppercase: {{ sample_text|upper }}</p>
-        <p>Lowercase: {{ sample_text|lower }}</p>
-        <p>Truncated: {{ sample_text|truncate(20) }}</p>
-        <p>Number format: {{ number|number_format(2) }}</p>
-        <p>Date format: {{ date|date_format("%Y-%m-%d %H:%M") }}</p>
-    </div>
-    
-    <a href="/" class="btn">Back to Home</a>
-    ]]
-    
-    local context = {
-        title = "Template Demo",
-        page_title = "Template Syntax Demo",
-        content_template = "demo.html",
-        current_year = os.date("%Y"),
-        
-        -- Demo data
-        name = "John Doe",
-        is_admin = true,
-        age = 25,
-        items = {"Apple", "Banana", "Cherry", "Date"},
-        sample_text = "This is a sample text for demonstration purposes.",
-        number = 1234567.89,
-        date = os.time()
-    }
-    
-    -- Create demo.html dynamically
-    local file = io.open("LuneAPI/examples/templates/demo.html", "w")
-    if file then
-        file:write(template_str)
-        file:close()
+    -- Get cache stats before rendering
+    local cache_stats = { hits = 0, misses = 0, size = 0, max_size = 0 }
+    if app.template.get_cache_stats then
+        cache_stats = app.template.get_cache_stats() or cache_stats
     end
     
+    -- Calculate hit ratio with defaults to avoid division by zero
+    local cache_hit_ratio = 0
+    if (cache_stats.hits + cache_stats.misses) > 0 then
+        cache_hit_ratio = math.floor((cache_stats.hits / (cache_stats.hits + cache_stats.misses)) * 100)
+    end
+    
+    -- Create context with all demo data
+    local context = {
+        title = "Template Documentation",
+        page_title = "Template Engine Documentation",
+        content_template = "docs/template_doc.html",
+        current_year = os.date("%Y"),
+        
+        -- Basic demo data
+        name = "John Doe",
+        is_admin = true,
+        is_minor = false,
+        age = 25,
+        items = {"Apple", "Banana", "Cherry", "Date"},
+        empty_list = {},
+        sample_text = "This is a sample text for demonstration purposes.",
+        long_text = "This is a very long text that will be truncated.",
+        number = 1234567.89,
+        date = os.time(),
+        
+        -- User object demo
+        user = {
+            name = "Jane Smith",
+            email = "jane@example.com",
+            admin = true
+        },
+        
+        -- Template inclusion variables
+        template_var = "docs/include_demo",
+        
+        -- Cache statistics
+        cache_stats = cache_stats,
+        cache_hit_ratio = cache_hit_ratio,
+        
+        -- Will be filled in after rendering
+        render_time = 0
+    }
+    
+    -- Render the template
     local html = app.template.render_file("LuneAPI/examples/templates/base.html", context)
+    
+    -- Calculate rendering time
+    local render_time = math.floor((os.clock() - start_time) * 1000)
+    
+    -- Add rendering time to the HTML
+    html = html:gsub("{{ render_time }}", tostring(render_time))
+    
     return res:header('Content-Type', 'text/html'):send(html)
 end)
 

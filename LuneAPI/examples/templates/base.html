@@ -13,17 +13,25 @@
             margin: 0 auto;
         }
         header {
-            background-color: #f4f4f4;
-            padding: 20px;
+            background-color: #2E4053;
+            color: white;
+            padding: 30px;
             margin-bottom: 20px;
             border-radius: 5px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+        header h1 {
+            color: white;
+            margin: 0;
         }
         footer {
             margin-top: 30px;
             padding: 20px;
-            background-color: #f4f4f4;
+            background-color: #2E4053;
+            color: white;
             text-align: center;
             border-radius: 5px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
         }
         .container {
             padding: 20px;
@@ -31,25 +39,97 @@
         .card {
             border: 1px solid #ddd;
             border-radius: 5px;
-            padding: 15px;
-            margin-bottom: 15px;
+            padding: 20px;
+            margin-bottom: 25px;
             background-color: white;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.05);
         }
         h1, h2, h3 {
-            color: #333;
+            color: #2E4053;
+        }
+        h2 {
+            padding-bottom: 10px;
+            border-bottom: 2px solid #f4f4f4;
+            margin-top: 0;
+        }
+        h3 {
+            margin-top: 30px;
+            margin-bottom: 15px;
+            padding-bottom: 5px;
+            border-bottom: 1px solid #f4f4f4;
+        }
+        h4 {
+            margin-top: 20px;
+            color: #566573;
         }
         .btn {
             display: inline-block;
-            padding: 8px 16px;
-            background-color: #4CAF50;
+            padding: 10px 18px;
+            background-color: #2E4053;
             color: white;
             text-decoration: none;
             border-radius: 4px;
             border: none;
             cursor: pointer;
+            font-weight: bold;
+            transition: background-color 0.3s;
         }
         .btn:hover {
-            background-color: #45a049;
+            background-color: #3d566e;
+        }
+        pre {
+            background-color: #f8f8f8;
+            padding: 10px;
+            border-radius: 4px;
+            border: 1px solid #ddd;
+            overflow-x: auto;
+            font-family: Consolas, Monaco, 'Andale Mono', monospace;
+            font-size: 14px;
+        }
+        pre[style="display:inline;"] {
+            padding: 2px 5px;
+            margin: 0 2px;
+            display: inline !important;
+            font-size: 90%;
+        }
+        .demo-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 15px 0;
+        }
+        .demo-table th, .demo-table td {
+            border: 1px solid #ddd;
+            padding: 8px 12px;
+            text-align: left;
+        }
+        .demo-table th {
+            background-color: #f4f4f4;
+            font-weight: bold;
+        }
+        .demo-table tr:nth-child(even) {
+            background-color: #f9f9f9;
+        }
+        .example-box {
+            border: 1px dashed #ccc;
+            border-radius: 5px;
+            padding: 10px;
+            margin: 10px 0;
+            background-color: #f9f9f9;
+        }
+        .success {
+            color: #2e7d32;
+            font-weight: bold;
+        }
+        .error {
+            color: #c62828;
+            font-weight: bold;
+        }
+        ul {
+            margin-left: 0;
+            padding-left: 20px;
+        }
+        ul li {
+            margin-bottom: 5px;
         }
     </style>
 </head>

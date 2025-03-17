@@ -1,0 +1,321 @@
+<h2>LuneAPI Template Engine Documentation</h2>
+
+<div class="card">
+    <h3>Introduction</h3>
+    <p>LuneAPI Template Engine is a powerful and flexible templating system inspired by Jinja2/Twig. 
+    It supports variables, conditionals, loops, includes, and a rich set of filters.</p>
+    <p>This page serves as both documentation and a live demonstration of all available features.</p>
+</div>
+
+<div class="card">
+    <h3>1. Variable Substitution</h3>
+    <p>Variables are enclosed in double curly braces: <pre style="display:inline;">{{ variable }}</pre></p>
+    
+    <h4>Examples:</h4>
+    <p>String variable: {{ name }}</p>
+    <p>Number variable: {{ age }}</p>
+    <p>Boolean variable (displays nothing if false): {{ is_admin }}</p>
+    <p>Current date (built-in): {{ current_date }}</p>
+    <p>Current year (built-in): {{ current_year }}</p>
+    
+    <h4>Nested Properties:</h4>
+    <p>Accessing object properties: {{ user.name }}, {{ user.email }}</p>
+    
+    <h4>Array Indexing:</h4>
+    <p>Accessing array elements: {{ items[0] }}</p>
+</div>
+
+<div class="card">
+    <h3>2. Conditionals</h3>
+    <p>Conditionals use the <pre style="display:inline;">{% if condition %} {% endif %}</pre> syntax.</p>
+    
+    <h4>Basic Conditions:</h4>
+    {% if is_admin %}
+        <p class="success">✓ You have administrator privileges.</p>
+    {% else %}
+        <p class="error">✗ You are a regular user.</p>
+    {% endif %}
+    
+    <h4>Multiple Branches:</h4>
+    {% if age > 65 %}
+        <p>Senior discount applies.</p>
+    {% elseif age >= 18 %}
+        <p>Adult pricing applies.</p>
+    {% else %}
+        <p>Youth discount applies.</p>
+    {% endif %}
+    
+    <h4>Logical Operators:</h4>
+    <p>Using NOT operator:</p>
+    {% if not is_minor %}
+        <p>You are an adult (not a minor).</p>
+    {% endif %}
+    
+    <h4>Variable Truthiness:</h4>
+    <p>Empty check (empty variables are falsy):</p>
+    {% if empty_var %}
+        <p>This won't display because empty_var is empty.</p>
+    {% else %}
+        <p>Empty variables are considered falsy.</p>
+    {% endif %}
+    
+    <h4>Filter in Conditions:</h4>
+    {% if items|length > 2 %}
+        <p>You have more than 2 items (exact count: {{ items|length }}).</p>
+    {% endif %}
+    
+    <h4>Comparisons:</h4>
+    <ul>
+        <li>Equal: {% if age == 25 %}✓{% else %}✗{% endif %} (age == 25)</li>
+        <li>Not equal: {% if age != 30 %}✓{% else %}✗{% endif %} (age != 30)</li>
+        <li>Greater than: {% if age > 20 %}✓{% else %}✗{% endif %} (age > 20)</li>
+        <li>Less than: {% if age < 30 %}✓{% else %}✗{% endif %} (age < 30)</li>
+        <li>Greater or equal: {% if age >= 25 %}✓{% else %}✗{% endif %} (age >= 25)</li>
+        <li>Less or equal: {% if age <= 25 %}✓{% else %}✗{% endif %} (age <= 25)</li>
+    </ul>
+</div>
+
+<div class="card">
+    <h3>3. Loops</h3>
+    <p>Loops use the <pre style="display:inline;">{% for item in items %} {% endfor %}</pre> syntax.</p>
+    
+    <h4>Basic Loop:</h4>
+    <ul>
+    {% for item in items %}
+        <li>{{ item }}</li>
+    {% endfor %}
+    </ul>
+    
+    <h4>Loop with Index:</h4>
+    <ul>
+    {% for item in items %}
+        <li>{{ loop.index }}. {{ item }}</li>
+    {% endfor %}
+    </ul>
+    
+    <h4>Loop Variables:</h4>
+    <table class="demo-table">
+        <tr>
+            <th>Variable</th>
+            <th>Description</th>
+            <th>Value</th>
+        </tr>
+        {% for item in items %}
+        <tr>
+            <td>loop.index</td>
+            <td>Current iteration (1-based)</td>
+            <td>{{ loop.index }}</td>
+        </tr>
+        <tr>
+            <td>loop.index0</td>
+            <td>Current iteration (0-based)</td>
+            <td>{{ loop.index0 }}</td>
+        </tr>
+        <tr>
+            <td>loop.first</td>
+            <td>True for first iteration</td>
+            <td>{{ loop.first }}</td>
+        </tr>
+        <tr>
+            <td>loop.last</td>
+            <td>True for last iteration</td>
+            <td>{{ loop.last }}</td>
+        </tr>
+        <tr>
+            <td>loop.length</td>
+            <td>Total number of items</td>
+            <td>{{ loop.length }}</td>
+        </tr>
+        {% if loop.first %}{% break %}{% endif %}
+        {% endfor %}
+    </table>
+    
+    <h4>Empty Loop Handling:</h4>
+    {% for item in empty_list %}
+        <p>This won't display as the list is empty.</p>
+    {% else %}
+        <p>The list is empty, so this else block is displayed.</p>
+    {% endfor %}
+</div>
+
+<div class="card">
+    <h3>4. Filters</h3>
+    <p>Filters transform variables and are applied using the pipe syntax: <pre style="display:inline;">{{ variable|filter }}</pre></p>
+    
+    <h4>String Filters:</h4>
+    <table class="demo-table">
+        <tr>
+            <th>Filter</th>
+            <th>Description</th>
+            <th>Example</th>
+            <th>Result</th>
+        </tr>
+        <tr>
+            <td>upper</td>
+            <td>Convert to uppercase</td>
+            <td>{{ "{{ name|upper }}" }}</td>
+            <td>{{ name|upper }}</td>
+        </tr>
+        <tr>
+            <td>lower</td>
+            <td>Convert to lowercase</td>
+            <td>{{ "{{ name|lower }}" }}</td>
+            <td>{{ name|lower }}</td>
+        </tr>
+        <tr>
+            <td>truncate</td>
+            <td>Truncate text with ellipsis</td>
+            <td>{{ "{{ long_text|truncate(10) }}" }}</td>
+            <td>{{ sample_text|truncate(10) }}</td>
+        </tr>
+        <tr>
+            <td>escape</td>
+            <td>HTML escape</td>
+            <td>{{ "{{ '<strong>test</strong>'|escape }}" }}</td>
+            <td>{{ "<strong>test</strong>"|escape }}</td>
+        </tr>
+        <tr>
+            <td>length</td>
+            <td>Get string length</td>
+            <td>{{ "{{ name|length }}" }}</td>
+            <td>{{ name|length }}</td>
+        </tr>
+    </table>
+    
+    <h4>Number Filters:</h4>
+    <table class="demo-table">
+        <tr>
+            <th>Filter</th>
+            <th>Description</th>
+            <th>Example</th>
+            <th>Result</th>
+        </tr>
+        <tr>
+            <td>number_format</td>
+            <td>Format with thousand separators and decimals</td>
+            <td>{{ "{{ number|number_format(2) }}" }}</td>
+            <td>{{ number|number_format(2) }}</td>
+        </tr>
+    </table>
+    
+    <h4>Date Filters:</h4>
+    <table class="demo-table">
+        <tr>
+            <th>Filter</th>
+            <th>Description</th>
+            <th>Example</th>
+            <th>Result</th>
+        </tr>
+        <tr>
+            <td>date_format</td>
+            <td>Format date (uses Lua's os.date patterns)</td>
+            <td>{{ "{{ date|date_format('%Y-%m-%d') }}" }}</td>
+            <td>{{ date|date_format("%Y-%m-%d") }}</td>
+        </tr>
+        <tr>
+            <td>date_format</td>
+            <td>With time</td>
+            <td>{{ "{{ date|date_format('%H:%M:%S') }}" }}</td>
+            <td>{{ date|date_format("%H:%M:%S") }}</td>
+        </tr>
+    </table>
+    
+    <h4>Default Values:</h4>
+    <table class="demo-table">
+        <tr>
+            <th>Filter</th>
+            <th>Description</th>
+            <th>Example</th>
+            <th>Result</th>
+        </tr>
+        <tr>
+            <td>default</td>
+            <td>Provide default for nil or empty values</td>
+            <td>{{ "{{ missing_var|default('Not provided') }}" }}</td>
+            <td>{{ missing_var|default("Not provided") }}</td>
+        </tr>
+    </table>
+    
+    <h4>Collection Filters:</h4>
+    <table class="demo-table">
+        <tr>
+            <th>Filter</th>
+            <th>Description</th>
+            <th>Example</th>
+            <th>Result</th>
+        </tr>
+        <tr>
+            <td>length</td>
+            <td>Get table length</td>
+            <td>{{ "{{ items|length }}" }}</td>
+            <td>{{ items|length }}</td>
+        </tr>
+    </table>
+    
+    <h4>Chaining Filters:</h4>
+    <p>Filters can be chained: {{ name|upper|truncate(5) }}</p>
+</div>
+
+<div class="card">
+    <h3>5. Includes</h3>
+    <p>Templates can include other templates using the <pre style="display:inline;">{% include "template_name" %}</pre> syntax.</p>
+    
+    <h4>Basic Include:</h4>
+    <div class="example-box">
+        {% include "docs/include_demo" %}
+    </div>
+    
+    <h4>Dynamic Includes:</h4>
+    <p>The template name can be a variable:</p>
+    <div class="example-box">
+        {% include template_var %}
+    </div>
+</div>
+
+<div class="card">
+    <h3>6. Comments</h3>
+    <p>Comments are invisible in the output and use the <pre style="display:inline;">{# This is a comment #}</pre> syntax.</p>
+    
+    <p>There is a comment here: {# This won't appear in the output #} (did you see it?)</p>
+</div>
+
+<div class="card">
+    <h3>7. Advanced Features</h3>
+    
+    <h4>Template Caching:</h4>
+    <p>The template engine uses LRU caching for better performance. {% if cache_stats.hits > 0 or cache_stats.misses > 0 %}Current cache statistics:{% else %}Cache statistics will be available in a future version.{% endif %}</p>
+    {% if cache_stats.hits > 0 or cache_stats.misses > 0 %}
+    <ul>
+        <li>Cache hits: {{ cache_stats.hits }}</li>
+        <li>Cache misses: {{ cache_stats.misses }}</li>
+        <li>Current cache size: {{ cache_stats.size }} / {{ cache_stats.max_size }}</li>
+        <li>Hit ratio: {{ cache_hit_ratio }}%</li>
+    </ul>
+    {% endif %}
+    
+    <h4>Rendering Performance:</h4>
+    <p>Rendering time: {{ render_time }}ms</p>
+</div>
+
+<div class="card">
+    <h3>8. How to Use in Your Application</h3>
+    <pre>
+-- Initialize the template engine
+app:set_template_dir("path/to/templates")
+
+-- Render a template with context
+local html = app.template.render_file("templates/my_template.html", {
+    title = "My Page",
+    items = {"Item 1", "Item 2"},
+    user = {
+        name = "John",
+        admin = true
+    }
+})
+
+-- Send the rendered HTML
+return res:header('Content-Type', 'text/html'):send(html)
+    </pre>
+</div>
+
+<a href="/" class="btn">Back to Home</a> 

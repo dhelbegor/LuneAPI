@@ -29,6 +29,8 @@ build = {
         ["luneapi.logger"] = "LuneAPI/src/logger.lua",
         ["luneapi.template.init"] = "LuneAPI/src/template/init.lua",
         ["luneapi.template.parser"] = "LuneAPI/src/template/parser.lua",
-        ["luneapi.template.renderer"] = "LuneAPI/src/template/renderer.lua"
+        ["luneapi.template.renderer"] = "LuneAPI/src/template/renderer.lua",
+        ["luneapi.jsonify"] = "LuneAPI/src/jsonify/init.lua",
+         ["luneapi.jsonify.serializer"] = "LuneAPI/src/jsonify/Serializer.lua"
     }
 }

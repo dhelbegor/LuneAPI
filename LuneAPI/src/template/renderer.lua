@@ -1,5 +1,11 @@
 -- Template Renderer for LuneAPI
 -- Renders parsed templates with context data
+--
+-- Optimizations:
+--   1. Precompiled regex patterns for better performance
+--   2. Template caching to avoid repeated file I/O and parsing
+--   3. Refactored condition evaluation for better readability and maintenance
+--   4. LRU (Least Recently Used) cache management
 
 local Renderer = {}
 
@@ -14,6 +20,39 @@ local include_stack = {}
 
 -- Debug mode (enables additional logging)
 local debug_mode = false
+
+-- Template caching to improve performance for frequently accessed templates
+local template_cache = {}
+local cache_enabled = true
+local max_cache_size = 50 -- Maximum number of templates to cache
+local cache_hits = 0
+local cache_misses = 0
+
+-- Precompiled regex patterns for better performance
+local PATTERNS = {
+    -- Variable and filter patterns
+    variable_filter = "^([^|]+)(.*)$",
+    filter_name_args = "^([%w_]+)%s*%(?(.-)%)?$",
+    filter_args = "([^,]+)",
+    default_filter = "(.+)|default%(([^)]+)%)",
+    
+    -- Value patterns
+    trim_whitespace = "^%s*(.-)%s*$",
+    quoted_string = '^".*"$',
+    quoted_string_alt = "^'.*'$",
+    numeric = "^%d+%.?%d*$",
+    
+    -- Condition patterns
+    not_condition = "^not%s+(.+)$",
+    filter_comparison = "([^|]+)|([^%s]+)%s*([=<>!]+)%s*(.+)",
+    array_indexing = "^([^%[]+)%[(%d+)%]$",
+    
+    -- Include patterns
+    variable_in_include = "{{.+}}",
+    extract_var_name = "{{%s*(.-)%s*}}",
+    html_ext = "%.html$",
+    tpl_ext = "%.tpl$"
+}
 
 -- Default filter for undefined values
 local function default_value(val, default)
@@ -114,10 +153,10 @@ local function get_value(context, var_name)
     end
     
     -- Check for default filter syntax: var|default("default value")
-    local name, default_val = var_name:match("(.+)|default%(([^)]+)%)")
+    local name, default_val = var_name:match(PATTERNS.default_filter)
     if name and default_val then
         -- Remove quotes if present
-        if default_val:match('^".*"$') or default_val:match("^'.*'$") then
+        if default_val:match(PATTERNS.quoted_string) or default_val:match(PATTERNS.quoted_string_alt) then
             default_val = default_val:sub(2, -2)
         end
         
@@ -138,7 +177,7 @@ local function get_value(context, var_name)
         end
         
         -- Handle array indexing (e.g., items[1])
-        local name, index = part:match("^([^%[]+)%[(%d+)%]$")
+        local name, index = part:match(PATTERNS.array_indexing)
         if name and index then
             value = value[name]
             if type(value) == "table" then
@@ -158,6 +197,57 @@ local function get_value(context, var_name)
     return value
 end
 
+-- Helper function to parse a value from a condition
+local function parse_condition_value(value_str, context)
+    value_str = value_str:gsub(PATTERNS.trim_whitespace, "%1")
+    
+    -- Handle quoted strings
+    if value_str:match(PATTERNS.quoted_string) or value_str:match(PATTERNS.quoted_string_alt) then
+        return value_str:sub(2, -2)
+    -- Handle numbers
+    elseif value_str:match(PATTERNS.numeric) then
+        return tonumber(value_str)
+    -- Handle context variables
+    else
+        return get_value(context, value_str)
+    end
+end
+
+-- Helper function to compare two values based on operator
+local function compare_values(left, right, operator)
+    -- Convert to numbers for numeric comparison if both can be numbers
+    if type(left) ~= "number" and type(tonumber(left)) == "number" and
+       type(right) ~= "number" and type(tonumber(right)) == "number" then
+        left = tonumber(left)
+        right = tonumber(right)
+    end
+    
+    -- Ensure both values are of the same type for comparison
+    if type(left) == "number" and type(right) == "number" then
+        if operator == "==" then return left == right
+        elseif operator == "!=" then return left ~= right
+        elseif operator == ">" then return left > right
+        elseif operator == "<" then return left < right
+        elseif operator == ">=" then return left >= right
+        elseif operator == "<=" then return left <= right
+        end
+    else
+        -- Convert to strings for string comparison
+        left = tostring(left or "")
+        right = tostring(right or "")
+        
+        if operator == "==" then return left == right
+        elseif operator == "!=" then return left ~= right
+        elseif operator == ">" then return left > right
+        elseif operator == "<" then return left < right
+        elseif operator == ">=" then return left >= right
+        elseif operator == "<=" then return left <= right
+        end
+    end
+    
+    return false
+end
+
 -- Try to check if a condition is truthy
 local function evaluate_condition(condition, context)
     if type(condition) ~= "string" then
@@ -165,15 +255,15 @@ local function evaluate_condition(condition, context)
     end
     
     -- Handle empty condition
-    condition = condition:gsub("^%s*(.-)%s*$", "%1")
+    condition = condition:gsub(PATTERNS.trim_whitespace, "%1")
     if condition == "" then
         return false
     end
     
     -- Handle NOT operator: if not condition
-    if condition:match("^not%s+(.+)$") then
-        local cond = condition:match("^not%s+(.+)$")
-        return not evaluate_condition(cond, context)
+    local not_cond = condition:match(PATTERNS.not_condition)
+    if not_cond then
+        return not evaluate_condition(not_cond, context)
     end
     
     -- Handle simple conditions like: if user
@@ -184,9 +274,9 @@ local function evaluate_condition(condition, context)
     end
     
     -- Handle comparison with filter
-    local left_var, filter, operator, right = condition:match("([^|]+)|([^%s]+)%s*([=<>!]+)%s*(.+)")
+    local left_var, filter, operator, right = condition:match(PATTERNS.filter_comparison)
     if left_var and filter and operator and right then
-        local left_value = get_value(context, left_var:gsub("^%s*(.-)%s*$", "%1"))
+        local left_value = get_value(context, left_var:gsub(PATTERNS.trim_whitespace, "%1"))
         
         -- Apply the filter
         if filters[filter] then
@@ -194,240 +284,48 @@ local function evaluate_condition(condition, context)
         end
         
         -- Parse right side
-        right = right:gsub("^%s*(.-)%s*$", "%1")
-        local right_value
-        
-        -- Handle quoted strings or numbers
-        if right:match('^".*"$') or right:match("^'.*'$") then
-            right_value = right:sub(2, -2)
-        elseif right:match("^%d+%.?%d*$") then
-            right_value = tonumber(right)
-            -- Convert left to number for numeric comparison
-            if type(left_value) ~= "number" then
-                left_value = tonumber(left_value) or 0
-            end
-        else
-            right_value = get_value(context, right)
-        end
+        local right_value = parse_condition_value(right, context)
         
         -- Perform comparison
-        if operator == "==" then
-            return left_value == right_value
-        elseif operator == "!=" then
-            return left_value ~= right_value
-        elseif operator == ">" then
-            return left_value > right_value
-        elseif operator == "<" then
-            return left_value < right_value
-        elseif operator == ">=" then
-            return left_value >= right_value
-        elseif operator == "<=" then
-            return left_value <= right_value
-        end
+        return compare_values(left_value, right_value, operator)
     end
     
     -- Check for regular comparison operators
-    if condition:find("==") then
-        local left, right = condition:match("(.-)%s*==%s*(.+)")
-        if left and right then
-            left = left:gsub("^%s*(.-)%s*$", "%1")
-            right = right:gsub("^%s*(.-)%s*$", "%1")
-            
-            -- Handle quotes
-            if left:match('^".*"$') or left:match("^'.*'$") then
-                left = left:sub(2, -2)
-            elseif left:match("^%d+%.?%d*$") then
-                left = tonumber(left)
-            else
-                left = get_value(context, left)
-            end
-            
-            if right:match('^".*"$') or right:match("^'.*'$") then
-                right = right:sub(2, -2)
-            elseif right:match("^%d+%.?%d*$") then
-                right = tonumber(right)
-            else
-                right = get_value(context, right)
-            end
-            
-            return left == right
-        end
-    elseif condition:find("!=") then
-        local left, right = condition:match("(.-)%s*!=%s*(.+)")
-        if left and right then
-            left = left:gsub("^%s*(.-)%s*$", "%1")
-            right = right:gsub("^%s*(.-)%s*$", "%1")
-            
-            -- Handle quotes
-            if left:match('^".*"$') or left:match("^'.*'$") then
-                left = left:sub(2, -2)
-            elseif left:match("^%d+%.?%d*$") then
-                left = tonumber(left)
-            else
-                left = get_value(context, left)
-            end
-            
-            if right:match('^".*"$') or right:match("^'.*'$") then
-                right = right:sub(2, -2)
-            elseif right:match("^%d+%.?%d*$") then
-                right = tonumber(right)
-            else
-                right = get_value(context, right)
-            end
-            
-            return left ~= right
-        end
-    elseif condition:find(">") and not condition:find(">=") then
-        local left, right = condition:match("(.-)%s*>%s*(.+)")
-        if left and right then
-            left = left:gsub("^%s*(.-)%s*$", "%1")
-            right = right:gsub("^%s*(.-)%s*$", "%1")
-            
-            -- Handle quotes and convert to appropriate types
-            if left:match('^".*"$') or left:match("^'.*'$") then
-                left = left:sub(2, -2)
-            elseif left:match("^%d+%.?%d*$") then
-                left = tonumber(left)
-            else
-                left = get_value(context, left)
-                -- Try to convert to number for comparison
-                if type(left) ~= "number" and type(tonumber(left)) == "number" then
-                    left = tonumber(left)
-                end
-            end
-            
-            if right:match('^".*"$') or right:match("^'.*'$") then
-                right = right:sub(2, -2)
-            elseif right:match("^%d+%.?%d*$") then
-                right = tonumber(right)
-            else
-                right = get_value(context, right)
-                -- Try to convert to number for comparison
-                if type(right) ~= "number" and type(tonumber(right)) == "number" then
-                    right = tonumber(right)
-                end
-            end
-            
-            -- Ensure both values are of the same type for comparison
-            if type(left) == "number" and type(right) == "number" then
-                return left > right
-            else
-                return tostring(left) > tostring(right)
+    local operators = {
+        ["=="] = true,
+        ["!="] = true,
+        [">="] = true,
+        ["<="] = true,
+        [">"] = true,
+        ["<"] = true
+    }
+    
+    -- Find the operator used in the condition
+    local op_used = nil
+    for op in pairs(operators) do
+        if condition:find(op) then
+            -- For > and <, make sure we're not matching >= and <=
+            if (op == ">" and not condition:find(">=")) or
+               (op == "<" and not condition:find("<=")) or
+               op ~= ">" and op ~= "<" then
+                op_used = op
+                break
             end
         end
-    elseif condition:find("<") and not condition:find("<=") then
-        local left, right = condition:match("(.-)%s*<%s*(.+)")
+    end
+    
+    if op_used then
+        -- Split the condition into left and right parts
+        local pattern = "(.-)%s*" .. op_used:gsub("[<>=!]", "%%%1") .. "%s*(.+)"
+        local left, right = condition:match(pattern)
+        
         if left and right then
-            left = left:gsub("^%s*(.-)%s*$", "%1")
-            right = right:gsub("^%s*(.-)%s*$", "%1")
+            -- Parse both values
+            local left_value = parse_condition_value(left, context)
+            local right_value = parse_condition_value(right, context)
             
-            -- Handle quotes and convert to appropriate types
-            if left:match('^".*"$') or left:match("^'.*'$") then
-                left = left:sub(2, -2)
-            elseif left:match("^%d+%.?%d*$") then
-                left = tonumber(left)
-            else
-                left = get_value(context, left)
-                -- Try to convert to number for comparison
-                if type(left) ~= "number" and type(tonumber(left)) == "number" then
-                    left = tonumber(left)
-                end
-            end
-            
-            if right:match('^".*"$') or right:match("^'.*'$") then
-                right = right:sub(2, -2)
-            elseif right:match("^%d+%.?%d*$") then
-                right = tonumber(right)
-            else
-                right = get_value(context, right)
-                -- Try to convert to number for comparison
-                if type(right) ~= "number" and type(tonumber(right)) == "number" then
-                    right = tonumber(right)
-                end
-            end
-            
-            -- Ensure both values are of the same type for comparison
-            if type(left) == "number" and type(right) == "number" then
-                return left < right
-            else
-                return tostring(left) < tostring(right)
-            end
-        end
-    elseif condition:find(">=") then
-        local left, right = condition:match("(.-)%s*>=%s*(.+)")
-        if left and right then
-            left = left:gsub("^%s*(.-)%s*$", "%1")
-            right = right:gsub("^%s*(.-)%s*$", "%1")
-            
-            -- Handle quotes and convert to appropriate types
-            if left:match('^".*"$') or left:match("^'.*'$") then
-                left = left:sub(2, -2)
-            elseif left:match("^%d+%.?%d*$") then
-                left = tonumber(left)
-            else
-                left = get_value(context, left)
-                -- Try to convert to number for comparison
-                if type(left) ~= "number" and type(tonumber(left)) == "number" then
-                    left = tonumber(left)
-                end
-            end
-            
-            if right:match('^".*"$') or right:match("^'.*'$") then
-                right = right:sub(2, -2)
-            elseif right:match("^%d+%.?%d*$") then
-                right = tonumber(right)
-            else
-                right = get_value(context, right)
-                -- Try to convert to number for comparison
-                if type(right) ~= "number" and type(tonumber(right)) == "number" then
-                    right = tonumber(right)
-                end
-            end
-            
-            -- Ensure both values are of the same type for comparison
-            if type(left) == "number" and type(right) == "number" then
-                return left >= right
-            else
-                return tostring(left) >= tostring(right)
-            end
-        end
-    elseif condition:find("<=") then
-        local left, right = condition:match("(.-)%s*<=%s*(.+)")
-        if left and right then
-            left = left:gsub("^%s*(.-)%s*$", "%1")
-            right = right:gsub("^%s*(.-)%s*$", "%1")
-            
-            -- Handle quotes and convert to appropriate types
-            if left:match('^".*"$') or left:match("^'.*'$") then
-                left = left:sub(2, -2)
-            elseif left:match("^%d+%.?%d*$") then
-                left = tonumber(left)
-            else
-                left = get_value(context, left)
-                -- Try to convert to number for comparison
-                if type(left) ~= "number" and type(tonumber(left)) == "number" then
-                    left = tonumber(left)
-                end
-            end
-            
-            if right:match('^".*"$') or right:match("^'.*'$") then
-                right = right:sub(2, -2)
-            elseif right:match("^%d+%.?%d*$") then
-                right = tonumber(right)
-            else
-                right = get_value(context, right)
-                -- Try to convert to number for comparison
-                if type(right) ~= "number" and type(tonumber(right)) == "number" then
-                    right = tonumber(right)
-                end
-            end
-            
-            -- Ensure both values are of the same type for comparison
-            if type(left) == "number" and type(right) == "number" then
-                return left <= right
-            else
-                return tostring(left) <= tostring(right)
-            end
+            -- Perform comparison
+            return compare_values(left_value, right_value, op_used)
         end
     end
     
@@ -444,23 +342,23 @@ local function apply_filters(value, filter_str)
     
     -- Split into individual filters
     for filter_expr in filter_str:gmatch("([^|]+)") do
-        filter_expr = filter_expr:gsub("^%s*(.-)%s*$", "%1")
+        filter_expr = filter_expr:gsub(PATTERNS.trim_whitespace, "%1")
         
         -- Extract filter name and arguments
-        local filter_name, args = filter_expr:match("^([%w_]+)%s*%(?(.-)%)?$")
+        local filter_name, args = filter_expr:match(PATTERNS.filter_name_args)
         
         if filter_name and filters[filter_name] then
             -- Parse arguments if any
             local filter_args = {value}
             if args and args ~= "" then
-                for arg in args:gmatch("([^,]+)") do
-                    arg = arg:gsub("^%s*(.-)%s*$", "%1")
+                for arg in args:gmatch(PATTERNS.filter_args) do
+                    arg = arg:gsub(PATTERNS.trim_whitespace, "%1")
                     
                     -- Handle string literals
-                    if arg:match('^".*"$') or arg:match("^'.*'$") then
+                    if arg:match(PATTERNS.quoted_string) or arg:match(PATTERNS.quoted_string_alt) then
                         table.insert(filter_args, arg:sub(2, -2))
                     -- Handle numbers
-                    elseif arg:match("^%d+%.?%d*$") then
+                    elseif arg:match(PATTERNS.numeric) then
                         table.insert(filter_args, tonumber(arg))
                     -- Handle other values (as strings)
                     else
@@ -479,15 +377,15 @@ end
 
 -- Process variables in the format "var|filter1|filter2(arg)"
 local function process_variable(var_expr, context)
-    var_expr = var_expr:gsub("^%s*(.-)%s*$", "%1")
+    var_expr = var_expr:gsub(PATTERNS.trim_whitespace, "%1")
     
     -- Split variable name and filters
-    local var_name, filter_str = var_expr:match("^([^|]+)(.*)$")
+    local var_name, filter_str = var_expr:match(PATTERNS.variable_filter)
     if not var_name then
         return ""
     end
     
-    var_name = var_name:gsub("^%s*(.-)%s*$", "%1")
+    var_name = var_name:gsub(PATTERNS.trim_whitespace, "%1")
     
     -- Get value from context
     local value = get_value(context, var_name)
@@ -511,10 +409,10 @@ local function resolve_include_path(template_name, context)
     end
     
     -- Normalize template name
-    template_name = template_name:gsub("^%s*(.-)%s*$", "%1")
+    template_name = template_name:gsub(PATTERNS.trim_whitespace, "%1")
     
     -- Remove quotes if present
-    if template_name:match('^".*"$') or template_name:match("^'.*'$") then
+    if template_name:match(PATTERNS.quoted_string) or template_name:match(PATTERNS.quoted_string_alt) then
         template_name = template_name:sub(2, -2)
     end
     
@@ -524,7 +422,7 @@ local function resolve_include_path(template_name, context)
     end
     
     -- If template doesn't have an extension, add .html
-    if not template_name:match("%.html$") and not template_name:match("%.tpl$") then
+    if not template_name:match(PATTERNS.html_ext) and not template_name:match(PATTERNS.tpl_ext) then
         template_name = template_name .. ".html"
     end
     
@@ -532,6 +430,85 @@ local function resolve_include_path(template_name, context)
     local file_path = template_dir .. "/" .. template_name
     
     return file_path
+end
+
+-- Helper function to get cache statistics
+local function get_cache_stats()
+    return {
+        enabled = cache_enabled,
+        size = #template_cache,
+        max_size = max_cache_size,
+        hits = cache_hits,
+        misses = cache_misses,
+        hit_ratio = cache_hits > 0 and (cache_hits / (cache_hits + cache_misses)) or 0
+    }
+end
+
+-- Helper function to clear the template cache
+local function clear_cache()
+    template_cache = {}
+    cache_hits = 0
+    cache_misses = 0
+    if debug_mode then
+        print("Template cache cleared")
+    end
+end
+
+-- Helper function to add a template to the cache
+local function cache_template(path, content)
+    if not cache_enabled then
+        return
+    end
+    
+    -- Check if cache is full
+    if #template_cache >= max_cache_size then
+        -- Remove the least recently used template (first one)
+        table.remove(template_cache, 1)
+        if debug_mode then
+            print("Cache full, removed oldest template")
+        end
+    end
+    
+    -- Add the template to the cache
+    table.insert(template_cache, {
+        path = path,
+        content = content,
+        timestamp = os.time()
+    })
+    
+    if debug_mode then
+        print("Template cached: " .. path)
+    end
+end
+
+-- Helper function to get a template from cache
+local function get_cached_template(path)
+    if not cache_enabled then
+        return nil
+    end
+    
+    for i, entry in ipairs(template_cache) do
+        if entry.path == path then
+            -- Move this entry to the end (most recently used)
+            local cached = table.remove(template_cache, i)
+            cached.timestamp = os.time() -- Update timestamp
+            table.insert(template_cache, cached)
+            
+            cache_hits = cache_hits + 1
+            if debug_mode then
+                print("Cache hit: " .. path)
+            end
+            
+            return cached.content
+        end
+    end
+    
+    cache_misses = cache_misses + 1
+    if debug_mode then
+        print("Cache miss: " .. path)
+    end
+    
+    return nil
 end
 
 -- Render an included template with handling for circular dependencies
@@ -546,9 +523,9 @@ local function process_include(template_name, context)
     end
     
     -- Try to evaluate the template name if it's a variable 
-    if template_name:match("{{.+}}") then
+    if template_name:match(PATTERNS.variable_in_include) then
         -- Extract variable name from {{ var }}
-        local var_name = template_name:match("{{%s*(.-)%s*}}")
+        local var_name = template_name:match(PATTERNS.extract_var_name)
         if var_name then
             local value = get_value(context, var_name)
             if value then
@@ -578,21 +555,32 @@ local function process_include(template_name, context)
     -- Add to include stack
     table.insert(include_stack, template_name)
     
-    -- Try to open the file
-    local file, err = io.open(file_path, "r")
-    if not file then
-        table.remove(include_stack)
-        return "<!-- Include failed: " .. file_path .. " (" .. (err or "unknown error") .. ") -->"
+    -- Try to get the parsed template from cache
+    local parsed = get_cached_template(file_path)
+    
+    -- If not found in cache, read from file and cache it
+    if not parsed then
+        -- Try to open the file
+        local file, err = io.open(file_path, "r")
+        if not file then
+            table.remove(include_stack)
+            return "<!-- Include failed: " .. file_path .. " (" .. (err or "unknown error") .. ") -->"
+        end
+        
+        -- Read and parse the template
+        local content = file:read("*a")
+        file:close()
+        
+        -- Parse the template
+        local Parser = require('luneapi.template.parser')
+        parsed = Parser.parse(content)
+        
+        -- Cache the parsed template
+        cache_template(file_path, parsed)
     end
     
-    -- Read and parse the template
-    local content = file:read("*a")
-    file:close()
-    
-    -- Parse and render the included template
+    -- Render the template with the context
     local success, result = pcall(function()
-        local Parser = require('luneapi.template.parser')
-        local parsed = Parser.parse(content)
         return Renderer.render(parsed, context)
     end)
     
@@ -751,6 +739,64 @@ end
 -- Get the current template directory
 function Renderer.get_template_dir()
     return template_dir
+end
+
+-- Public function to render a template file
+function Renderer.render_file(file_path, context)
+    -- Check if file exists
+    local file, err = io.open(file_path, "r")
+    if not file then
+        return "<!-- Error: Cannot open template file: " .. file_path .. " (" .. (err or "unknown error") .. ") -->"
+    end
+    
+    -- Try to get the parsed template from cache
+    local parsed = get_cached_template(file_path)
+    
+    -- If not found in cache, read from file and cache it
+    if not parsed then
+        -- Read the template
+        local content = file:read("*a")
+        file:close()
+        
+        -- Parse the template
+        local Parser = require('luneapi.template.parser')
+        parsed = Parser.parse(content)
+        
+        -- Cache the parsed template
+        cache_template(file_path, parsed)
+    else
+        file:close()
+    end
+    
+    -- Render the template with the context
+    return Renderer.render(parsed, context)
+end
+
+-- Enable or disable template caching
+function Renderer.set_cache_enabled(enabled)
+    cache_enabled = enabled
+    if not enabled then
+        clear_cache()
+    end
+end
+
+-- Set the maximum cache size
+function Renderer.set_max_cache_size(size)
+    max_cache_size = size
+    -- If new size is smaller than current cache, trim it
+    while #template_cache > max_cache_size do
+        table.remove(template_cache, 1)
+    end
+end
+
+-- Clear the template cache
+function Renderer.clear_cache()
+    clear_cache()
+end
+
+-- Get cache statistics
+function Renderer.get_cache_stats()
+    return get_cache_stats()
 end
 
 return Renderer 
