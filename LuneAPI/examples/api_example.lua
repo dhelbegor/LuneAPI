@@ -70,18 +70,70 @@ local user_schema = {
     required_fields = {"name", "email"}
 }
 
--- JSON Response Helper
-local function json_response(res, data, status)
+-- JSON Response Helper with HTML wrapper option
+local function json_response(res, data, status, with_html)
     status = status or 200
-    return res:status(status)
-        :header('Content-Type', 'application/json')
-        :send(jsonify.stringify(data))
+    local json_str = jsonify.stringify(data)
+    
+    if with_html then
+        local html = [[
+<!DOCTYPE html>
+<html>
+<head>
+    <title>API Response</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            line-height: 1.6;
+        }
+        pre {
+            background-color: #f8f9fa;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            padding: 15px;
+            overflow: auto;
+            font-family: monospace;
+            font-size: 14px;
+        }
+        .back-link {
+            display: inline-block;
+            margin-top: 20px;
+            padding: 8px 16px;
+            background-color: #2c3e50;
+            color: white;
+            text-decoration: none;
+            border-radius: 4px;
+        }
+        .back-link:hover {
+            background-color: #1a252f;
+        }
+    </style>
+</head>
+<body>
+    <h1>API Response</h1>
+    <pre>]] .. jsonify.pretty(data) .. [[</pre>
+    <a href="/" class="back-link">Back to Documentation</a>
+</body>
+</html>
+        ]]
+        
+        return res:status(status)
+            :header('Content-Type', 'text/html')
+            :send(html)
+    else
+        return res:status(status)
+            :header('Content-Type', 'application/json')
+            :send(json_str)
+    end
 end
 
 -- Error Response Helper
-local function error_response(res, message, status)
+local function error_response(res, message, status, with_html)
     status = status or 400
-    return json_response(res, { error = message }, status)
+    return json_response(res, { error = message }, status, with_html)
 end
 
 -- JSON parsing middleware
@@ -121,7 +173,12 @@ app.middleware:use(json_middleware)
 
 -- GET /api/users - List all users
 app:get('/api/users', function(req, res)
-    return json_response(res, users)
+    -- Check if request is coming from a browser
+    local is_browser = req.headers["user-agent"] and req.headers["user-agent"]:match("Mozilla")
+    local accept = req.headers["accept"] or ""
+    local wants_html = accept:match("text/html") or is_browser
+    
+    return json_response(res, users, 200, wants_html)
 end)
 
 -- GET /api/users/:id - Get specific user
@@ -136,7 +193,12 @@ app:get('/api/users/:id', function(req, res)
         return error_response(res, "User not found", 404)
     end
     
-    return json_response(res, user)
+    -- Check if request is coming from a browser
+    local is_browser = req.headers["user-agent"] and req.headers["user-agent"]:match("Mozilla")
+    local accept = req.headers["accept"] or ""
+    local wants_html = accept:match("text/html") or is_browser
+    
+    return json_response(res, user, 200, wants_html)
 end)
 
 -- POST /api/users - Create new user
@@ -292,7 +354,12 @@ app:get('/api/stats', function(req, res)
         stats.averages.age = total_age / #users
     end
     
-    return json_response(res, stats)
+    -- Check if request is coming from a browser
+    local is_browser = req.headers["user-agent"] and req.headers["user-agent"]:match("Mozilla")
+    local accept = req.headers["accept"] or ""
+    local wants_html = accept:match("text/html") or is_browser
+    
+    return json_response(res, stats, 200, wants_html)
 end)
 
 -- Simple HTML page to display the API info with links to test it
@@ -359,7 +426,7 @@ app:get('/', function(req, res)
         <span class="method get">GET</span> <strong>/api/users</strong>
         <div class="description">
             Returns a list of all users.
-            <div><a href="/api/users" target="_blank">Test this endpoint</a></div>
+            <div><a href="/api/users">Test this endpoint</a></div>
         </div>
     </div>
     
@@ -367,7 +434,7 @@ app:get('/', function(req, res)
         <span class="method get">GET</span> <strong>/api/users/:id</strong>
         <div class="description">
             Returns a single user by ID.
-            <div><a href="/api/users/1" target="_blank">Test with user ID 1</a></div>
+            <div><a href="/api/users/1">Test with user ID 1</a></div>
         </div>
     </div>
     
@@ -412,7 +479,7 @@ app:get('/', function(req, res)
         <span class="method get">GET</span> <strong>/api/stats</strong>
         <div class="description">
             Returns statistics about the users.
-            <div><a href="/api/stats" target="_blank">Test this endpoint</a></div>
+            <div><a href="/api/stats">Test this endpoint</a></div>
         </div>
     </div>
     
