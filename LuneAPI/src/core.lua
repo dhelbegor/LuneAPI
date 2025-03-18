@@ -4,7 +4,6 @@
 
 local Server = require('luneapi.server')
 local config = require('luneapi.config')
-local Template = require('luneapi.template')
 
 local Core = {}
 Core.__index = Core
@@ -16,9 +15,6 @@ function Core.new()
     
     -- Expose the server's middleware for direct access
     instance.middleware = instance.server.middleware
-    
-    -- Expose the template engine
-    instance.template = Template
     
     -- Explicitly add HTTP methods to the instance
     instance.get = function(self, path, handler)
@@ -62,21 +58,6 @@ function Core.new()
         self:run()
     end
     
-    -- Add a helper method for rendering templates directly in response
-    instance.render = function(self, template_path, context)
-        -- If template_dir isn't set yet, use a default
-        if not Template._template_dir then
-            Template.set_template_dir("./templates")
-        end
-        
-        return Template.render_file(template_path, context)
-    end
-    
-    -- Set template directory
-    instance.set_template_dir = function(self, dir)
-        Template.set_template_dir(dir)
-    end
-    
     return instance
 end
 
@@ -107,21 +88,6 @@ end
 function Core:run()
     print("Starting server on " .. config.server.host .. ":" .. config.server.port)
     self.server:run()
-end
-
--- Set the template directory for the template engine
-function Core:set_template_dir(dir)
-    self.template.set_template_dir(dir)
-end
-
--- Render a template with context
-function Core:render(template_path, context)
-    -- If template_dir isn't set yet, use a default
-    if not self.template._template_dir then
-        self.template.set_template_dir("./templates")
-    end
-    
-    return self.template.render_file(template_path, context)
 end
 
 return Core 
